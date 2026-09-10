@@ -17,6 +17,8 @@ public final class SPMapboxBridge: NSObject {
     @objc public var onCameraChanged: ((Double, Double, Double, Double, Double) -> Void)?
     @objc public var onMapClicked: ((Double, Double) -> Void)?
     @objc public var onFeatureClicked: ((String, String?, String?, Double, Double) -> Void)?
+    /// Fired when the user pans the map by hand (drag gesture); used to drop "follow my location".
+    @objc public var onMapPanned: (() -> Void)?
 
     private let mapView: MapView
     private var visibleLayerIds: [String] = []
@@ -27,6 +29,12 @@ public final class SPMapboxBridge: NSObject {
     private var addedImageIds: Set<String> = []
     private var cameraObserver: AnyCancelable?
     private var tapObserver: AnyCancelable?
+    private var locationObserver: AnyCancelable?
+    private var lastUserLocation: CLLocationCoordinate2D?
+    // One-shot "recenter as soon as a fix arrives" request, so the first tap still moves the camera
+    // even before the puck has reported a position. `pendingRecenterZoom == nil` keeps the zoom.
+    private var hasPendingRecenter = false
+    private var pendingRecenterZoom: Double?
     private var suppressCameraEvents = false
     private var hasFitted = false
 
@@ -49,6 +57,7 @@ public final class SPMapboxBridge: NSObject {
         super.init()
         configureGestures()
         installObservers()
+        mapView.gestures.delegate = self
     }
 
     private func configureGestures() {
@@ -73,10 +82,12 @@ public final class SPMapboxBridge: NSObject {
     @objc public func dispose() {
         cameraObserver = nil
         tapObserver = nil
+        locationObserver = nil
         onMapLoaded = nil
         onCameraChanged = nil
         onMapClicked = nil
         onFeatureClicked = nil
+        onMapPanned = nil
     }
 
     private func installObservers() {
@@ -134,6 +145,56 @@ public final class SPMapboxBridge: NSObject {
             zoom: zoom,
             bearing: bearing,
             pitch: pitch
+        )
+        suppressCameraEvents = true
+        setGesturesEnabled(false)
+        mapView.camera.fly(to: options) { [weak self] _ in
+            self?.suppressCameraEvents = false
+            self?.setGesturesEnabled(true)
+            self?.emitCameraChanged()
+        }
+    }
+
+    /// Shows/hides the device-location "blue dot" puck. Mapbox reads the device location itself
+    /// (given the app holds the location permission); we observe it to answer recenterOnUserLocation.
+    @objc public func setShowsUserLocation(_ enabled: Bool) {
+        if enabled {
+            mapView.location.options.puckType = .puck2D()
+            if locationObserver == nil {
+                locationObserver = mapView.location.onLocationChange.observe { [weak self] locations in
+                    guard let self = self, let coordinate = locations.last?.coordinate else { return }
+                    self.lastUserLocation = coordinate
+                    if self.hasPendingRecenter {
+                        self.hasPendingRecenter = false
+                        self.recenter(to: coordinate, zoom: self.pendingRecenterZoom)
+                    }
+                }
+            }
+        } else {
+            mapView.location.options.puckType = nil
+            locationObserver = nil
+            lastUserLocation = nil
+            hasPendingRecenter = false
+            pendingRecenterZoom = nil
+        }
+    }
+
+    /// Moves the camera to the device's current location. `zoom` NaN keeps the current zoom. If no
+    /// fix is available yet, the request is deferred until the puck reports its first position.
+    @objc public func recenterOnUserLocation(_ zoom: Double) {
+        let targetZoom: Double? = zoom.isNaN ? nil : zoom
+        if let coordinate = lastUserLocation {
+            recenter(to: coordinate, zoom: targetZoom)
+        } else {
+            pendingRecenterZoom = targetZoom
+            hasPendingRecenter = true
+        }
+    }
+
+    private func recenter(to coordinate: CLLocationCoordinate2D, zoom: Double?) {
+        let options = CameraOptions(
+            center: coordinate,
+            zoom: zoom ?? mapView.mapboxMap.cameraState.zoom
         )
         suppressCameraEvents = true
         setGesturesEnabled(false)
@@ -640,6 +701,19 @@ public final class SPMapboxBridge: NSObject {
               let str = String(data: data, encoding: .utf8) else { return nil }
         return str
     }
+}
+
+extension SPMapboxBridge: GestureManagerDelegate {
+    // Only a pan moves the camera away from the user's location; zoom/rotate keep the center.
+    public func gestureManager(_ gestureManager: GestureManager, didBegin gestureType: GestureType) {
+        if gestureType == .pan {
+            onMapPanned?()
+        }
+    }
+
+    public func gestureManager(_ gestureManager: GestureManager, didEnd gestureType: GestureType, willAnimate: Bool) {}
+
+    public func gestureManager(_ gestureManager: GestureManager, didEndAnimatingFor gestureType: GestureType) {}
 }
 
 /// Swallows attribution link opens on kiosk devices — the menu itself (and its telemetry alert)
