@@ -205,6 +205,16 @@ public final class SPMapboxBridge: NSObject {
         }
     }
 
+    /// Configures the compass ornament, which sits in the map's top-right corner. `.adaptive`
+    /// matches Android's default: the compass fades out while the map faces north and reappears
+    /// after a rotate gesture. Margins are in points (x = inset from the right edge, y = from the
+    /// top); use marginTop to clear app UI drawn over that corner (e.g. a floor selector).
+    @objc public func setCompass(enabled: Bool, marginTop: Double, marginRight: Double) {
+        mapView.ornaments.options.compass.visibility = enabled ? .adaptive : .hidden
+        mapView.ornaments.options.compass.position = .topTrailing
+        mapView.ornaments.options.compass.margins = CGPoint(x: marginRight, y: marginTop)
+    }
+
     @objc public func setBounds(minZoom: Double, maxZoom: Double) {
         let options = CameraBoundsOptions(
             bounds: nil,
