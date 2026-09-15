@@ -648,9 +648,13 @@ public final class SPMapboxBridge: NSObject {
             addedSourceIds.insert(id)
             return
         }
+        // tolerance 0 disables Douglas-Peucker simplification in the native GeoJSON tiler
+        // (geojson-vt-cpp). Without it, small round polygons (e.g. 1.5 m circles) collapse to an
+        // octagon at high zoom, unlike the web SDK which keeps all vertices on the max-zoom tile.
         let sourceProps: [String: Any] = [
             "type": "geojson",
             "data": parsedGeoJson(geoJson),
+            "tolerance": 0,
         ]
         do {
             try mapView.mapboxMap.addSource(withId: id, properties: sourceProps)
