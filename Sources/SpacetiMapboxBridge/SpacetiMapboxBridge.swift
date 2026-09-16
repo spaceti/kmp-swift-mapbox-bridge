@@ -685,9 +685,15 @@ public final class SPMapboxBridge: NSObject {
         let options = RenderedQueryOptions(layerIds: visibleLayerIds, filter: nil)
         _ = mapView.mapboxMap.queryRenderedFeatures(with: point, options: options) { [weak self] result in
             guard let self = self else { return }
-            guard case .success(let features) = result, let last = features.last else { return }
-            let layerId = last.layers.last ?? ""
-            let feature = last.queriedFeature.feature
+            guard case .success(let features) = result, !features.isEmpty else { return }
+            // Mapbox returns the hits in no useful order. `visibleLayerIds` is ordered bottom->top by
+            // the shared z-index, so the hit on the highest layer wins: a sensor or marker icon drawn
+            // over a space polygon takes the tap, as on the Android host.
+            func rank(_ layerId: String) -> Int { self.visibleLayerIds.firstIndex(of: layerId) ?? -1 }
+            let ranked = features.map { hit in (hit: hit, rank: hit.layers.map(rank).max() ?? -1) }
+            guard let top = ranked.max(by: { $0.rank < $1.rank })?.hit else { return }
+            let layerId = top.layers.max(by: { rank($0) < rank($1) }) ?? ""
+            let feature = top.queriedFeature.feature
             let featureId = SPMapboxBridge.featureIdString(feature)
             let propertiesJson = SPMapboxBridge.encodeProperties(feature)
             self.onFeatureClicked?(
