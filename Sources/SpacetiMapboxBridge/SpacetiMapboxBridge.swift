@@ -205,14 +205,25 @@ public final class SPMapboxBridge: NSObject {
         }
     }
 
-    /// Configures the compass ornament, which sits in the map's top-right corner. `.adaptive`
-    /// matches Android's default: the compass fades out while the map faces north and reappears
-    /// after a rotate gesture. Margins are in points (x = inset from the right edge, y = from the
-    /// top); use marginTop to clear app UI drawn over that corner (e.g. a floor selector).
-    @objc public func setCompass(enabled: Bool, marginTop: Double, marginRight: Double) {
+    /// Configures the compass ornament. `.adaptive` matches Android's default: the compass fades out
+    /// while the map faces north and reappears after a rotate gesture. `position` selects the anchor
+    /// corner (0 = top-leading, 1 = top-trailing, 2 = bottom-leading, 3 = bottom-trailing); the
+    /// caller resolves the margins for that corner into `marginX` (inset from the horizontal edge)
+    /// and `marginY` (inset from the vertical edge), matching Mapbox's `margins` CGPoint. Use them to
+    /// clear app UI drawn over that corner (e.g. a floor selector, or map action buttons).
+    @objc public func setCompass(enabled: Bool, position: Int32, marginX: Double, marginY: Double) {
         mapView.ornaments.options.compass.visibility = enabled ? .adaptive : .hidden
-        mapView.ornaments.options.compass.position = .topTrailing
-        mapView.ornaments.options.compass.margins = CGPoint(x: marginRight, y: marginTop)
+        mapView.ornaments.options.compass.position = Self.ornamentPosition(for: position)
+        mapView.ornaments.options.compass.margins = CGPoint(x: marginX, y: marginY)
+    }
+
+    private static func ornamentPosition(for code: Int32) -> OrnamentPosition {
+        switch code {
+        case 0: return .topLeading
+        case 2: return .bottomLeading
+        case 3: return .bottomTrailing
+        default: return .topTrailing
+        }
     }
 
     @objc public func setBounds(minZoom: Double, maxZoom: Double) {
