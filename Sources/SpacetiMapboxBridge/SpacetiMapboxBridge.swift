@@ -171,7 +171,11 @@ public final class SPMapboxBridge: NSObject {
                 }
             }
         } else {
-            mapView.location.options.puckType = nil
+            // Writing `location.options` subscribes Mapbox to the device location (and asks for the
+            // permission) even when the puck stays nil; only write when there is a puck to remove.
+            if mapView.location.options.puckType != nil {
+                mapView.location.options.puckType = nil
+            }
             locationObserver = nil
             lastUserLocation = nil
             hasPendingRecenter = false
